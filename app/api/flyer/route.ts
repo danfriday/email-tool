@@ -3,6 +3,8 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { getPublicFileUrl } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_req: NextRequest) {
   const publicUrl =
     process.env.NEXT_PUBLIC_FLYER_IMAGE_URL ||

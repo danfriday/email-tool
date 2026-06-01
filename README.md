@@ -1,6 +1,6 @@
 # Bulk Email Campaign Manager
 
-A modern email campaign platform built with Next.js, Firebase, and Resend that enables organizations to import contacts, create personalized email campaigns, and track delivery status in real time.
+A modern email campaign platform built with Next.js, Supabase, and Resend that enables organizations to import contacts, create personalized email campaigns, and track delivery status in real time.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Bulk Email Campaign Manager simplifies the process of sending personalized email
 * Automatic column detection for names and email addresses
 * Search, filter, and manage contacts
 * Bulk contact operations
-* Real-time contact synchronization
+* Cloud-backed contact storage
 
 ### Personalized Email Campaigns
 
@@ -50,10 +50,10 @@ Bulk Email Campaign Manager simplifies the process of sending personalized email
 ## Technology Stack
 
 * **Frontend:** Next.js, React, TypeScript
-* **Database:** Firebase Realtime Database
+* **Database:** Supabase
 * **Email Service:** Resend
 * **Styling:** Modern responsive UI
-* **Deployment:** Vercel-ready
+* **Deployment:** Netlify-ready
 
 ## Use Cases
 
@@ -83,9 +83,17 @@ Bulk Email Campaign Manager simplifies the process of sending personalized email
 * Error handling and delivery monitoring
 * Scalable architecture for growing contact lists
 
-## Deployment
+## Netlify Deployment
 
-The application is optimized for deployment on Vercel and can be self-hosted using Docker or other Node.js hosting platforms.
+The application is configured for Netlify with `netlify.toml`.
+
+Use these build settings:
+
+* Build command: `npm run build`
+* Publish directory: `.next`
+* Node version: `18`
+
+Before deploying, add the variables from `.env.example` to the Netlify site's environment variables. Keep server-side secrets such as `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` out of public client variables.
 
 ## License
 
