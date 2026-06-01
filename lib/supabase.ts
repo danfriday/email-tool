@@ -1,0 +1,148 @@
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Contact } from '@/lib/firebase';
+
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabaseClient(): SupabaseClient {
+  if (!supabaseClient) {
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error(
+        'Missing Supabase environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY'
+      );
+    }
+    supabaseClient = createClient(supabaseUrl, supabaseKey);
+  }
+  return supabaseClient;
+}
+
+const supabaseBucket = process.env.SUPABASE_BUCKET || process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'flier';
+
+export function getPublicFileUrl(fileName: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  if (!baseUrl) {
+    throw new Error('Missing Supabase public URL: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL');
+  }
+
+  return `${baseUrl.replace(/\/$/, '')}/storage/v1/object/public/${supabaseBucket}/${encodeURIComponent(fileName)}`;
+}
+
+export async function uploadFileToBucket(fileName: string, fileData: Buffer, contentType = 'image/jpeg') {
+  const { data, error } = await getSupabaseClient().storage
+    .from(supabaseBucket)
+    .upload(fileName, fileData, {
+      contentType,
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Supabase uploadFileToBucket error:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+function mapContact(row: any): Contact {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    status: row.status as Contact['status'],
+    sentAt: row.sent_at ? new Date(row.sent_at).getTime() : undefined,
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : 0,
+  };
+}
+
+export async function addContact(contact: Omit<Contact, 'id' | 'createdAt'>): Promise<string> {
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .insert([
+      {
+        name: contact.name,
+        email: contact.email,
+        status: contact.status ?? 'pending',
+        sent_at: contact.sentAt ? new Date(contact.sentAt).toISOString() : null,
+      },
+    ])
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Supabase addContact error:', error);
+    throw error;
+  }
+
+  return data.id;
+}
+
+export async function getContacts(): Promise<Contact[]> {
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .select('id, name, email, status, sent_at, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Supabase getContacts error:', error);
+    throw error;
+  }
+
+  return (data ?? []).map(mapContact);
+}
+
+export async function getContactById(id: string): Promise<Contact | null> {
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .select('id, name, email, status, sent_at, created_at')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error('Supabase getContactById error:', error);
+    throw error;
+  }
+
+  return mapContact(data);
+}
+
+export async function updateContact(id: string, updates: Partial<Contact>): Promise<void> {
+  const payload: any = {};
+
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.email !== undefined) payload.email = updates.email;
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.sentAt !== undefined) payload.sent_at = updates.sentAt ? new Date(updates.sentAt).toISOString() : null;
+
+  const { error } = await getSupabaseClient()
+    .from('contacts')
+    .update(payload)
+    .eq('id', id);
+
+  if (error) {
+    console.error('Supabase updateContact error:', error);
+    throw error;
+  }
+}
+
+export async function deleteContact(id: string): Promise<void> {
+  const { error } = await getSupabaseClient().from('contacts').delete().eq('id', id);
+
+  if (error) {
+    console.error('Supabase deleteContact error:', error);
+    throw error;
+  }
+}
+
+export async function deleteAllContacts(): Promise<void> {
+  const { error } = await getSupabaseClient().from('contacts').delete();
+
+  if (error) {
+    console.error('Supabase deleteAllContacts error:', error);
+    throw error;
+  }
+}
