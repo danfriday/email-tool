@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { addContact, getContacts } from '@/lib/supabase';
-import { EMAIL_REGEX, parseName } from '@/lib/utils';
+import { addContacts, getContactsByEmails } from '@/lib/supabase';
+import { EMAIL_REGEX, normalizeEmail, parseName } from '@/lib/utils';
 
 interface ImportResult {
   file: string;
@@ -9,6 +9,7 @@ interface ImportResult {
   found: number;
   added: number;
   duplicates: number;
+  errors: number;
   contacts: Array<{
     id: string;
     name: string;
@@ -31,28 +32,18 @@ export async function POST(request: NextRequest) {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
 
-    // Get existing contacts to check for duplicates
-    const existingContacts = await getContacts();
-    const existingEmails = new Set(
-      existingContacts.map((c) => c.email.toLowerCase())
-    );
+    const rowCandidates: Array<{ name: string; email: string }> = [];
+    const totalRowsCounter = { totalRows: 0 };
 
-    const added = [];
-    const duplicateEmails = new Set<string>();
-    let totalRows = 0;
-
-    // Process all sheets
     for (const sheetName of workbook.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
         defval: '',
       }) as Array<Record<string, unknown>>;
 
       if (!rows.length) continue;
-
-      totalRows += rows.length;
+      totalRowsCounter.totalRows += rows.length;
       const cols = Object.keys(rows[0]);
 
-      // Auto-detect email column
       const emailCol =
         cols.find((c) => /^e?mail$/i.test(c)) ||
         cols.find((c) => /email|e-mail/i.test(c)) ||
@@ -62,7 +53,6 @@ export async function POST(request: NextRequest) {
 
       if (!emailCol) continue;
 
-      // Auto-detect name columns
       const firstCol = cols.find((c) => /first.?name|firstname/i.test(c));
       const lastCol = cols.find((c) => /last.?name|lastname/i.test(c));
       const nameCol =
@@ -77,10 +67,9 @@ export async function POST(request: NextRequest) {
             )
           : null);
 
-      // Process rows
       for (const row of rows) {
-        const email = String(row[emailCol]).trim().toLowerCase();
-
+        const emailValue = String(row[emailCol]).trim();
+        const email = normalizeEmail(emailValue);
         if (!EMAIL_REGEX.test(email)) continue;
 
         let name = '';
@@ -94,42 +83,77 @@ export async function POST(request: NextRequest) {
 
         if (!name) name = parseName(email.split('@')[0]);
 
-        // Check for duplicates
-        if (existingEmails.has(email)) {
-          duplicateEmails.add(email);
-          continue;
-        }
-
-        // Add to Firebase
-        try {
-          const id = await addContact({
-            name,
-            email,
-            status: 'pending',
-          });
-
-          added.push({ id, name, email });
-          existingEmails.add(email);
-        } catch (err) {
-          console.error(`Failed to add contact ${email}:`, err);
-        }
+        rowCandidates.push({ name, email });
       }
     }
+
+    const allEmails = Array.from(new Set(rowCandidates.map((r) => r.email)));
+    const existingContacts = await getContactsByEmails(allEmails);
+    const existingEmails = new Set(existingContacts.map((c) => c.email.toLowerCase()));
+
+    const newContactsMap = new Map<string, { name: string; email: string }>();
+    let existingDuplicates = 0;
+    let inlineDuplicates = 0;
+
+    for (const candidate of rowCandidates) {
+      if (existingEmails.has(candidate.email)) {
+        existingDuplicates += 1;
+        continue;
+      }
+
+      if (newContactsMap.has(candidate.email)) {
+        inlineDuplicates += 1;
+        continue;
+      }
+
+      newContactsMap.set(candidate.email, candidate);
+    }
+
+    const newContacts = Array.from(newContactsMap.values());
+    let added: Array<{ id: string; name: string; email: string }> = [];
+    let errors = 0;
+
+    if (newContacts.length) {
+      try {
+        const addedIds = await addContacts(
+          newContacts.map((contact) => ({
+            ...contact,
+            status: 'pending',
+          }))
+        );
+
+        added = newContacts.map((contact, index) => ({
+          id: addedIds[index],
+          ...contact,
+        }));
+      } catch (err) {
+        console.error('Failed to insert contacts in bulk:', err);
+        errors = newContacts.length;
+      }
+    }
+
+    const duplicateEmails = existingDuplicates + inlineDuplicates;
 
     return NextResponse.json({
       success: true,
       result: {
         file: file.name,
-        totalRows,
-        found: added.length + duplicateEmails.size,
+        totalRows: totalRowsCounter.totalRows,
+        found: added.length + duplicateEmails,
         added: added.length,
-        duplicates: duplicateEmails.size,
+        duplicates: duplicateEmails,
+        existingDuplicates,
+        inlineDuplicates,
+        errors,
         contacts: added,
       },
     });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
       { status: 500 }
     );
   }

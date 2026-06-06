@@ -30,9 +30,12 @@ export default function SendTab({
 }: SendTabProps) {
   const [logs, setLogs] = useState<SendLog[]>([]);
   const [running, setRunning] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
   const pending = contacts.filter((c) => c.selected && c.status === 'pending');
+  const selectedSent = contacts.filter((c) => c.selected && c.status === 'sent').length;
+  const selectedFailed = contacts.filter((c) => c.selected && c.status === 'failed').length;
   const sent = contacts.filter((c) => c.status === 'sent').length;
   const failed = contacts.filter((c) => c.status === 'failed').length;
   const total = contacts.filter((c) => c.selected).length;
@@ -54,11 +57,30 @@ export default function SendTab({
 
     stopRef.current = false;
     setRunning(true);
+    setSendError(null);
     setLogs([]);
-    addLog(`Starting to send Praise Party 3.0 invitations to ${pending.length} contacts…`, 'info');
+    addLog(`Starting to send invitations to ${pending.length} contact(s)…`, 'info');
 
     try {
-      // Send to backend API
+      const contactIds = pending
+        .map((c) => c.id)
+        .filter((id): id is string => Boolean(id));
+
+      if (contactIds.length !== pending.length) {
+        addLog(
+          'Warning: some selected contacts are missing an ID and will not be sent.',
+          'warn'
+        );
+      }
+
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.selected && c.status === 'pending' && contactIds.includes(c.id || '')
+            ? { ...c, status: 'sending' as const }
+            : c
+        )
+      );
+
       const publicFlyerUrl =
         process.env.NEXT_PUBLIC_FLYER_IMAGE_URL ||
         (process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -74,13 +96,11 @@ export default function SendTab({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contactIds: pending.map((c) => c.id),
+          contactIds,
           templateName: 'praise-party',
-          contactData: pending.map((c) => ({
-            id: c.id,
-            name: c.name,
-            email: c.email,
-          })),
+          contactData: pending
+            .filter((c) => c.id)
+            .map((c) => ({ id: c.id as string, name: c.name, email: c.email })),
           fromEmail: smtp.fromEmail,
           fromName: smtp.fromName,
           flyerImageUrl: resolvedFlyerImageUrl,
@@ -97,17 +117,21 @@ export default function SendTab({
 
       // Update contacts based on results
       data.results.forEach((result: any) => {
+        const contact = pending.find((c) => c.id === result.id);
+        const email = contact?.email || result.email || result.id;
+        const name = contact?.name || 'Unknown';
+
         if (result.success) {
-          addLog(
-            `✓ Sent → ${pending.find((c) => c.id === result.id)?.name || result.id} <${pending.find((c) => c.id === result.id)?.email || ''}>`,
-            'ok'
-          );
-        } else {
-          addLog(
-            `✗ Failed → ${pending.find((c) => c.id === result.id)?.email || result.id} (${result.error})`,
-            'err'
-          );
+          addLog(`✓ Sent → ${name} <${email}>`, 'ok');
+          return;
         }
+
+        if (result.error?.includes('Already sent previously')) {
+          addLog(`• Skipped already sent → ${name} <${email}>`, 'warn');
+          return;
+        }
+
+        addLog(`✗ Failed → ${email} (${result.error})`, 'err');
       });
 
       // Update contacts state based on API results
@@ -115,6 +139,9 @@ export default function SendTab({
         prev.map((contact) => {
           const result = data.results.find((r: any) => r.id === contact.id);
           if (result) {
+            if (result.skipped) {
+              return { ...contact, status: 'sent' };
+            }
             return {
               ...contact,
               status: result.success ? 'sent' : 'failed',
@@ -126,10 +153,12 @@ export default function SendTab({
 
       addLog(`Send complete: ${data.sentCount} sent, ${data.failedCount} failed`, 'info');
     } catch (error) {
-      addLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'err');
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setSendError(message);
+      addLog(`Send error: ${message}`, 'err');
+    } finally {
+      setRunning(false);
     }
-
-    setRunning(false);
   };
 
   const stopSend = () => {
@@ -238,6 +267,44 @@ export default function SendTab({
           ↺ Reset All
         </button>
       </div>
+      {sendError && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '12px 14px',
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            borderRadius: 10,
+            color: '#991b1b',
+            fontSize: 13,
+          }}
+        >
+          <strong>Send error:</strong> {sendError}
+        </div>
+      )}
+      {(selectedSent > 0 || selectedFailed > 0) && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 10,
+            color: '#475569',
+            fontSize: 12,
+          }}
+        >
+          {selectedSent > 0 && (
+            <div>
+              <strong>{selectedSent}</strong> contact(s) already sent will be skipped on send.
+            </div>
+          )}
+          {selectedFailed > 0 && (
+            <div>
+              <strong>{selectedFailed}</strong> contact(s) previously failed and will remain paused unless reset to pending.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Log */}
       {logs.length > 0 && (

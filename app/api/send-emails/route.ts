@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { updateContact } from '@/lib/supabase';
+import { getContactById, updateContact } from '@/lib/supabase';
 import { getEmailTemplate, interpolateEmail } from '@/lib/emailTemplates';
 
 function getResendClient() {
@@ -38,11 +38,23 @@ export async function POST(request: NextRequest) {
 
     const template = getEmailTemplate(templateName);
     const results = [];
+    const resend = getResendClient();
 
     for (const contactId of contactIds) {
-      const contact = contactData.find((c) => c.id === contactId);
-      
-      if (!contact) {
+      let contactRecord = null;
+
+      try {
+        contactRecord = await getContactById(contactId);
+      } catch (error) {
+        results.push({
+          id: contactId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to fetch contact',
+        });
+        continue;
+      }
+
+      if (!contactRecord) {
         results.push({
           id: contactId,
           success: false,
@@ -51,11 +63,28 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      try {
-        // Interpolate email with contact details
-        const personalizedTemplate = interpolateEmail(template, contact.name, contact.email, flyerImageUrl);
+      if (contactRecord.status === 'sent') {
+        results.push({
+          id: contactId,
+          success: false,
+          skipped: true,
+          error: 'Already sent previously, skipped',
+        });
+        continue;
+      }
 
-        const resend = getResendClient();
+      const contact =
+        contactData.find((c) => c.id === contactId) ||
+        ({ id: contactRecord.id as string, name: contactRecord.name, email: contactRecord.email });
+
+      try {
+        const personalizedTemplate = interpolateEmail(
+          template,
+          contact.name,
+          contact.email,
+          flyerImageUrl
+        );
+
         const response = await resend.emails.send({
           from: `${fromName} <${fromEmail}>`,
           to: contact.email,
@@ -63,35 +92,43 @@ export async function POST(request: NextRequest) {
           html: personalizedTemplate.html,
         });
 
-        if (response.error) {
-          throw new Error(response.error.message);
+        if ('error' in response && response.error) {
+          throw new Error(response.error.message || 'Resend API error');
         }
 
-        // Update contact status in Firebase
-        await updateContact(contactId, {
-          status: 'sent',
-          sentAt: Date.now(),
-        });
+        const messageId = (response as any).data?.id || (response as any).id;
+
+        try {
+          await updateContact(contactId, {
+            status: 'sent',
+            sentAt: Date.now(),
+          });
+        } catch (updateError) {
+          console.error('Failed to mark contact sent:', updateError);
+        }
 
         results.push({
           id: contactId,
           success: true,
-          messageId: response.data?.id,
+          messageId,
         });
       } catch (error) {
-        // Update contact status to failed
-        await updateContact(contactId, {
-          status: 'failed',
-        });
+        try {
+          await updateContact(contactId, {
+            status: 'failed',
+          });
+        } catch (updateError) {
+          console.error('Failed to mark contact failed:', updateError);
+        }
 
         results.push({
           id: contactId,
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
         });
+        continue;
       }
 
-      // Rate limiting: wait 100ms between emails
       await new Promise((r) => setTimeout(r, 100));
     }
 
@@ -99,7 +136,7 @@ export async function POST(request: NextRequest) {
       success: true,
       results,
       sentCount: results.filter((r) => r.success).length,
-      failedCount: results.filter((r) => !r.success).length,
+      failedCount: results.filter((r) => !r.success && !r.skipped).length,
     });
   } catch (error) {
     return NextResponse.json(

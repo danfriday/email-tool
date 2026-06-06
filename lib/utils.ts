@@ -1,8 +1,12 @@
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+export function normalizeEmail(email: string): string {
+  return String(email).trim().toLowerCase();
+}
+
 export const generateId = () => Math.random().toString(36).slice(2, 9);
 
-export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function parseName(raw: string = ''): string {
   return raw

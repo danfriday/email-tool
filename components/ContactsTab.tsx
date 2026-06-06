@@ -17,6 +17,7 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
   const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
   const [showAddInline, setShowAddInline] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const filtered = contacts.filter((c) => {
     const q = search.toLowerCase();
@@ -89,8 +90,12 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
           />
           <button
             onClick={async () => {
-              if (!newEmail) return;
+              if (!newEmail) {
+                setFormError('Please enter a valid email address.');
+                return;
+              }
               setAdding(true);
+              setFormError(null);
               try {
                 const res = await fetch('/api/contacts', {
                   method: 'POST',
@@ -105,11 +110,12 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
                   ]);
                   setNewName('');
                   setNewEmail('');
+                  setFormError(null);
                 } else {
-                  alert(data.error || 'Failed to add contact');
+                  setFormError(data.error || 'Failed to add contact');
                 }
               } catch (err) {
-                alert('Failed to add contact');
+                setFormError('Failed to add contact');
               }
               setAdding(false);
             }}
@@ -119,6 +125,11 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
             {adding ? 'Adding…' : 'Add'}
           </button>
         </div>
+        {formError && (
+          <div style={{ marginTop: 12, color: '#b91c1c', fontSize: 13 }}>
+            {formError}
+          </div>
+        )}
       </div>
     );
   }
@@ -192,58 +203,88 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
           {!showAddInline && (
             <button
               onClick={() => setShowAddInline(true)}
-              style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }}
+              style={{
+                padding: '7px 14px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 8,
+                border: '1px solid #e2e8f0',
+                background: '#fff',
+                cursor: 'pointer',
+              }}
             >
               + Add Contact
             </button>
           )}
           {showAddInline && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                placeholder="Name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0' }}
-              />
-              <input
-                placeholder="Email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0' }}
-              />
-              <button
-                onClick={async () => {
-                  if (!newEmail) return;
-                  setAdding(true);
-                  try {
-                    const res = await fetch('/api/contacts', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ name: newName, email: newEmail }),
-                    });
-                    const data = await res.json();
-                    if (data.success && data.contact) {
-                      setContacts((prev) => [
-                        ...prev,
-                        { ...data.contact, selected: false },
-                      ]);
-                      setNewName('');
-                      setNewEmail('');
-                      setShowAddInline(false);
-                    } else {
-                      alert(data.error || 'Failed to add contact');
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  placeholder="Name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0' }}
+                />
+                <input
+                  placeholder="Email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0' }}
+                />
+                <button
+                  onClick={async () => {
+                    if (!newEmail) {
+                      setFormError('Please enter a valid email address.');
+                      return;
                     }
-                  } catch (err) {
-                    alert('Failed to add contact');
-                  }
-                  setAdding(false);
-                }}
-                disabled={adding}
-                style={{ padding: '8px 12px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none' }}
-              >
-                {adding ? 'Adding…' : 'Add'}
-              </button>
-              <button onClick={() => { setShowAddInline(false); setNewName(''); setNewEmail(''); }} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff' }}>Cancel</button>
+                    setAdding(true);
+                    setFormError(null);
+                    try {
+                      const res = await fetch('/api/contacts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName, email: newEmail }),
+                      });
+                      const data = await res.json();
+                      if (data.success && data.contact) {
+                        setContacts((prev) => [
+                          ...prev,
+                          { ...data.contact, selected: false },
+                        ]);
+                        setNewName('');
+                        setNewEmail('');
+                        setShowAddInline(false);
+                        setFormError(null);
+                      } else {
+                        setFormError(data.error || 'Failed to add contact');
+                      }
+                    } catch (err) {
+                      setFormError('Failed to add contact');
+                    }
+                    setAdding(false);
+                  }}
+                  disabled={adding}
+                  style={{ padding: '8px 12px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none' }}
+                >
+                  {adding ? 'Adding...' : 'Add'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddInline(false);
+                    setNewName('');
+                    setNewEmail('');
+                    setFormError(null);
+                  }}
+                  style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff' }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {formError && (
+                <div style={{ marginTop: 10, color: '#b91c1c', fontSize: 13 }}>
+                  {formError}
+                </div>
+              )}
             </div>
           )}
         </div>

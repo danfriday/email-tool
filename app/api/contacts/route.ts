@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   addContact,
+  getContactByEmail,
   getContacts,
   updateContact,
   deleteContact,
   deleteAllContacts,
 } from '@/lib/supabase';
-import { EMAIL_REGEX, parseName } from '@/lib/utils';
+import { EMAIL_REGEX, normalizeEmail, parseName } from '@/lib/utils';
 
 export async function GET() {
   try {
@@ -25,7 +26,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, email } = body;
 
-    // Validation
     if (!email || !EMAIL_REGEX.test(email)) {
       return NextResponse.json(
         { success: false, error: 'Invalid email address' },
@@ -33,11 +33,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const parsedName = name ? name : parseName(email.split('@')[0]);
+    const normalizedEmail = normalizeEmail(email);
+    const existing = await getContactByEmail(normalizedEmail);
+    if (existing) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'A contact with this email already exists',
+          contact: existing,
+        },
+        { status: 409 }
+      );
+    }
+
+    const parsedName = name ? name : parseName(normalizedEmail.split('@')[0]);
 
     const contactId = await addContact({
       name: parsedName,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       status: 'pending',
     });
 

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Contact } from '@/lib/firebase';
+import { normalizeEmail } from '@/lib/utils';
 
 const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -57,12 +58,13 @@ function mapContact(row: any): Contact {
 }
 
 export async function addContact(contact: Omit<Contact, 'id' | 'createdAt'>): Promise<string> {
+  const normalizedEmail = normalizeEmail(contact.email);
   const { data, error } = await getSupabaseClient()
     .from('contacts')
     .insert([
       {
         name: contact.name,
-        email: contact.email,
+        email: normalizedEmail,
         status: contact.status ?? 'pending',
         sent_at: contact.sentAt ? new Date(contact.sentAt).toISOString() : null,
       },
@@ -78,11 +80,14 @@ export async function addContact(contact: Omit<Contact, 'id' | 'createdAt'>): Pr
   return data.id;
 }
 
-export async function getContacts(): Promise<Contact[]> {
+const DEFAULT_CONTACT_FETCH_LIMIT = 10000;
+
+export async function getContacts(limit = DEFAULT_CONTACT_FETCH_LIMIT): Promise<Contact[]> {
   const { data, error } = await getSupabaseClient()
     .from('contacts')
     .select('id, name, email, status, sent_at, created_at')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(0, limit - 1);
 
   if (error) {
     console.error('Supabase getContacts error:', error);
@@ -90,6 +95,76 @@ export async function getContacts(): Promise<Contact[]> {
   }
 
   return (data ?? []).map(mapContact);
+}
+
+export async function getContactsByEmails(emails: string[]): Promise<Contact[]> {
+  if (!emails.length) {
+    return [];
+  }
+
+  const normalizedEmails = emails.map((email) => normalizeEmail(email));
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .select('id, name, email, status, sent_at, created_at')
+    .in('email', normalizedEmails);
+
+  if (error) {
+    console.error('Supabase getContactsByEmails error:', error);
+    throw error;
+  }
+
+  return (data ?? []).map(mapContact);
+}
+
+export async function getContactByEmail(email: string): Promise<Contact | null> {
+  const normalizedEmail = normalizeEmail(email);
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .select('id, name, email, status, sent_at, created_at')
+    .eq('email', normalizedEmail)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error('Supabase getContactByEmail error:', error);
+    throw error;
+  }
+
+  return mapContact(data);
+}
+
+export async function addContacts(
+  contacts: Array<{
+    name: string;
+    email: string;
+    status?: 'pending' | 'sent' | 'failed';
+    sentAt?: number;
+  }>
+): Promise<string[]> {
+  if (!contacts.length) {
+    return [];
+  }
+
+  const insertPayload = contacts.map((contact) => ({
+    name: contact.name,
+    email: normalizeEmail(contact.email),
+    status: contact.status ?? 'pending',
+    sent_at: contact.sentAt ? new Date(contact.sentAt).toISOString() : null,
+  }));
+
+  const { data, error } = await getSupabaseClient()
+    .from('contacts')
+    .insert(insertPayload)
+    .select('id');
+
+  if (error) {
+    console.error('Supabase addContacts error:', error);
+    throw error;
+  }
+
+  return (data ?? []).map((row: any) => row.id);
 }
 
 export async function getContactById(id: string): Promise<Contact | null> {

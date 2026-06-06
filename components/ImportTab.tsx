@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import { Contact } from '@/lib/firebase';
 import { EMAIL_REGEX, parseName } from '@/lib/utils';
 import StatCard from './StatCard';
@@ -11,7 +10,10 @@ interface ImportResult {
   totalRows: number;
   found: number;
   dupes: number;
+  existingDuplicates?: number;
+  inlineDuplicates?: number;
   added: number;
+  errors?: number;
 }
 
 interface ImportTabProps {
@@ -22,20 +24,21 @@ interface ImportTabProps {
 export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
   const [dragging, setDragging] = useState(false);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback((file: File) => {
+    setProcessing(true);
+    setErrorMessage(null);
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const result = e.target?.result;
-        if (!result) {
+        const fileBuffer = e.target?.result;
+        if (!fileBuffer) {
           throw new Error('File read failed');
         }
 
-        const wb = XLSX.read(new Uint8Array(result as ArrayBuffer), { type: 'array' });
-        
-        // Send to backend for processing
         const formData = new FormData();
         formData.append('file', file);
 
@@ -46,20 +49,29 @@ export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
 
         const data = await response.json();
 
-        if (data.success && data.result) {
-          const result = data.result;
-          setLastResult({
-            file: result.file,
-            totalRows: result.totalRows,
-            found: result.found,
-            dupes: result.duplicates,
-            added: result.added,
-          });
+        if (!data.success) {
+          throw new Error(data.error || 'Import failed');
+        }
 
-          // Update local contacts state
+        if (!data.result) {
+          throw new Error('Import result missing');
+        }
+
+        const apiResult = data.result;
+        setLastResult({
+          file: apiResult.file,
+          totalRows: apiResult.totalRows,
+          found: apiResult.found,
+          dupes: apiResult.duplicates,
+          existingDuplicates: apiResult.existingDuplicates,
+          inlineDuplicates: apiResult.inlineDuplicates,
+          added: apiResult.added,
+        });
+
+        if (apiResult.contacts?.length) {
           setContacts((prev) => [
             ...prev,
-            ...result.contacts.map((c: any) => ({
+            ...apiResult.contacts.map((c: any) => ({
               ...c,
               selected: true,
               status: 'pending' as const,
@@ -68,7 +80,9 @@ export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
           ]);
         }
       } catch (err) {
-        alert('Failed to import file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        setErrorMessage(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setProcessing(false);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -117,18 +131,19 @@ export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
           Supports <strong>.xlsx</strong>, <strong>.xls</strong>, <strong>.csv</strong> — scans all sheets automatically
         </div>
         <button
+          disabled={processing}
           style={{
-            background: '#6366f1',
+            background: processing ? '#c7d2fe' : '#6366f1',
             color: '#fff',
             border: 'none',
             padding: '10px 24px',
             borderRadius: 8,
             fontSize: 13,
             fontWeight: 600,
-            cursor: 'pointer',
+            cursor: processing ? 'not-allowed' : 'pointer',
           }}
         >
-          Browse files
+          {processing ? 'Importing…' : 'Browse files'}
         </button>
       </div>
 
@@ -150,6 +165,21 @@ export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
         <code style={{ background: '#e2e8f0', padding: '1px 6px', borderRadius: 4 }}>last_name</code>. Falls back to pattern-matching cell values.
       </div>
 
+      {errorMessage && (
+        <div
+          style={{
+            marginTop: 24,
+            padding: '12px 16px',
+            background: '#fee2e2',
+            color: '#991b1b',
+            borderRadius: 10,
+            border: '1px solid #fecaca',
+            fontSize: 13,
+          }}
+        >
+          <strong>Error importing file:</strong> {errorMessage}
+        </div>
+      )}
       {lastResult && (
         <div style={{ marginTop: 24 }}>
           <div
@@ -167,6 +197,15 @@ export default function ImportTab({ contacts, setContacts }: ImportTabProps) {
             <StatCard label="Emails Found" value={lastResult.found} accent="#6366f1" />
             <StatCard label="Duplicates Removed" value={lastResult.dupes} accent="#f59e0b" />
             <StatCard label="Added" value={lastResult.added} accent="#10b981" />
+            {lastResult.existingDuplicates ? (
+              <StatCard label="Existing Emails Skipped" value={lastResult.existingDuplicates} accent="#f59e0b" />
+            ) : null}
+            {lastResult.inlineDuplicates ? (
+              <StatCard label="Duplicate Rows Skipped" value={lastResult.inlineDuplicates} accent="#f59e0b" />
+            ) : null}
+            {lastResult.errors ? (
+              <StatCard label="Import Errors" value={lastResult.errors} accent="#ef4444" />
+            ) : null}
           </div>
           {contacts.length > 0 && (
             <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
