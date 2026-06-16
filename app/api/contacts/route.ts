@@ -9,6 +9,9 @@ import {
 } from '@/lib/supabase';
 import { EMAIL_REGEX, normalizeEmail, parseName } from '@/lib/utils';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const contacts = await getContacts();

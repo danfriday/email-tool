@@ -1,9 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import { useState, useEffect } from 'react';
 import { Contact } from '@/lib/firebase';
-import { EMAIL_REGEX, parseName, generateId, sleep, generateAvatarInitials, getAvatarColor } from '@/lib/utils';
 import ImportTab from '@/components/ImportTab';
 import ContactsTab from '@/components/ContactsTab';
 import SendTab from '@/components/SendTab';
@@ -80,7 +78,7 @@ export default function Home() {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Email Tool</div>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: -2 }}>
-                  Resend + Firebase
+                  Resend + Supabase
                 </div>
               </div>
             </div>

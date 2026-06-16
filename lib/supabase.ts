@@ -97,23 +97,81 @@ export async function getContacts(limit = DEFAULT_CONTACT_FETCH_LIMIT): Promise<
   return (data ?? []).map(mapContact);
 }
 
+const IN_QUERY_CHUNK_SIZE = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
 export async function getContactsByEmails(emails: string[]): Promise<Contact[]> {
   if (!emails.length) {
     return [];
   }
 
-  const normalizedEmails = emails.map((email) => normalizeEmail(email));
+  const normalizedEmails = Array.from(new Set(emails.map((email) => normalizeEmail(email))));
+  const results: Contact[] = [];
+
+  for (const batch of chunk(normalizedEmails, IN_QUERY_CHUNK_SIZE)) {
+    const { data, error } = await getSupabaseClient()
+      .from('contacts')
+      .select('id, name, email, status, sent_at, created_at')
+      .in('email', batch);
+
+    if (error) {
+      console.error('Supabase getContactsByEmails error:', error);
+      throw error;
+    }
+
+    results.push(...(data ?? []).map(mapContact));
+  }
+
+  return results;
+}
+
+export async function getContactsByIds(ids: string[]): Promise<Map<string, Contact>> {
+  const map = new Map<string, Contact>();
+  if (!ids.length) return map;
+
+  for (const batch of chunk(Array.from(new Set(ids)), IN_QUERY_CHUNK_SIZE)) {
+    const { data, error } = await getSupabaseClient()
+      .from('contacts')
+      .select('id, name, email, status, sent_at, created_at')
+      .in('id', batch);
+
+    if (error) {
+      console.error('Supabase getContactsByIds error:', error);
+      throw error;
+    }
+
+    for (const row of data ?? []) {
+      const contact = mapContact(row);
+      if (contact.id) map.set(contact.id, contact);
+    }
+  }
+
+  return map;
+}
+
+export async function markContactsBouncedByEmail(emails: string[]): Promise<number> {
+  if (!emails.length) return 0;
+  const normalized = Array.from(new Set(emails.map((email) => normalizeEmail(email))));
+
   const { data, error } = await getSupabaseClient()
     .from('contacts')
-    .select('id, name, email, status, sent_at, created_at')
-    .in('email', normalizedEmails);
+    .update({ status: 'bounced' })
+    .in('email', normalized)
+    .select('id');
 
   if (error) {
-    console.error('Supabase getContactsByEmails error:', error);
+    console.error('Supabase markContactsBouncedByEmail error:', error);
     throw error;
   }
 
-  return (data ?? []).map(mapContact);
+  return (data ?? []).length;
 }
 
 export async function getContactByEmail(email: string): Promise<Contact | null> {

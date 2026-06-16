@@ -2,7 +2,7 @@ export interface Contact {
   id?: string;
   name: string;
   email: string;
-  status?: 'pending' | 'sent' | 'failed';
+  status?: 'pending' | 'sending' | 'sent' | 'failed' | 'bounced';
   sentAt?: number;
   createdAt: number;
   selected?: boolean;

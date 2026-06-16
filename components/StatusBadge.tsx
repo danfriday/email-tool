@@ -1,7 +1,7 @@
 'use client';
 
 interface StatusBadgeProps {
-  status: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'bounced' | 'skipped';
 }
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
@@ -10,6 +10,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
     sending: { bg: '#fef3c7', color: '#d97706', label: 'Sending…' },
     sent: { bg: '#dcfce7', color: '#16a34a', label: 'Sent' },
     failed: { bg: '#fee2e2', color: '#dc2626', label: 'Failed' },
+    bounced: { bg: '#ffedd5', color: '#c2410c', label: 'Bounced' },
     skipped: { bg: '#f1f5f9', color: '#94a3b8', label: 'Skipped' },
   };
 

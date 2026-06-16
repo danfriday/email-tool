@@ -33,13 +33,17 @@ export default function SendTab({
   const [sendError, setSendError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
+  const BATCH_SIZE = 25;
+  const MAX_BATCH_RETRIES = 3;
+
   const pending = contacts.filter((c) => c.selected && c.status === 'pending');
   const selectedSent = contacts.filter((c) => c.selected && c.status === 'sent').length;
   const selectedFailed = contacts.filter((c) => c.selected && c.status === 'failed').length;
   const sent = contacts.filter((c) => c.status === 'sent').length;
   const failed = contacts.filter((c) => c.status === 'failed').length;
+  const bounced = contacts.filter((c) => c.status === 'bounced').length;
   const total = contacts.filter((c) => c.selected).length;
-  const done = sent + failed;
+  const done = sent + failed + bounced;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -47,6 +51,55 @@ export default function SendTab({
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const time = new Date().toLocaleTimeString();
     setLogs((p) => [...p, { id: uid(), time, msg, type }]);
+  };
+
+  const resolveFlyerUrl = () => {
+    const publicFlyerUrl =
+      process.env.NEXT_PUBLIC_FLYER_IMAGE_URL ||
+      (process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_BUCKET &&
+      process.env.NEXT_PUBLIC_SUPABASE_FLYER_FILE
+        ? `${process.env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/${process.env.NEXT_PUBLIC_SUPABASE_BUCKET}/${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_FLYER_FILE)}`
+        : '');
+    return publicFlyerUrl || `${window.location.origin}/api/flyer`;
+  };
+
+  const sendBatch = async (
+    batch: Contact[],
+    flyerImageUrl: string
+  ): Promise<any[]> => {
+    const contactIds = batch.map((c) => c.id).filter((id): id is string => Boolean(id));
+
+    let lastError = 'Unknown error';
+    for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt += 1) {
+      try {
+        const response = await fetch('/api/send-emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactIds,
+            templateName: 'praise-party',
+            contactData: batch
+              .filter((c) => c.id)
+              .map((c) => ({ id: c.id as string, name: c.name, email: c.email })),
+            fromEmail: smtp.fromEmail,
+            fromName: smtp.fromName,
+            flyerImageUrl,
+          }),
+        });
+
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Send request failed');
+        return data.results as any[];
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Unknown error';
+        if (attempt < MAX_BATCH_RETRIES) {
+          addLog(`Batch request failed (attempt ${attempt}/${MAX_BATCH_RETRIES}), retrying…`, 'warn');
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+    throw new Error(lastError);
   };
 
   const startSend = async () => {
@@ -59,99 +112,90 @@ export default function SendTab({
     setRunning(true);
     setSendError(null);
     setLogs([]);
-    addLog(`Starting to send invitations to ${pending.length} contact(s)…`, 'info');
+
+    const queue = pending.filter((c) => c.id);
+    if (queue.length !== pending.length) {
+      addLog('Warning: some selected contacts are missing an ID and will be skipped.', 'warn');
+    }
+
+    addLog(`Starting to send invitations to ${queue.length} contact(s)…`, 'info');
+    const flyerImageUrl = resolveFlyerUrl();
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalBounced = 0;
 
     try {
-      const contactIds = pending
-        .map((c) => c.id)
-        .filter((id): id is string => Boolean(id));
+      for (let i = 0; i < queue.length; i += BATCH_SIZE) {
+        if (stopRef.current) {
+          addLog('Stopped by user. Remaining contacts stay pending — press Send to resume.', 'warn');
+          break;
+        }
 
-      if (contactIds.length !== pending.length) {
-        addLog(
-          'Warning: some selected contacts are missing an ID and will not be sent.',
-          'warn'
+        const batch = queue.slice(i, i + BATCH_SIZE);
+        const batchIds = new Set(batch.map((c) => c.id));
+
+        // Show this batch as actively sending.
+        setContacts((prev) =>
+          prev.map((c) =>
+            batchIds.has(c.id) && c.status === 'pending' ? { ...c, status: 'sending' as const } : c
+          )
+        );
+
+        let results: any[];
+        try {
+          results = await sendBatch(batch, flyerImageUrl);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          addLog(`✗ Batch failed: ${message} — these contacts remain pending.`, 'err');
+          // Roll the batch back to pending so it can be retried.
+          setContacts((prev) =>
+            prev.map((c) =>
+              batchIds.has(c.id) && c.status === 'sending' ? { ...c, status: 'pending' as const } : c
+            )
+          );
+          setSendError(message);
+          break;
+        }
+
+        results.forEach((result: any) => {
+          const contact = batch.find((c) => c.id === result.id);
+          const email = contact?.email || result.email || result.id;
+          const name = contact?.name || 'Unknown';
+
+          if (result.success) {
+            totalSent += 1;
+            addLog(`✓ Sent → ${name} <${email}>`, 'ok');
+          } else if (result.skipped) {
+            addLog(`• Skipped → ${name} <${email}> (${result.error})`, 'warn');
+          } else if (result.bounced) {
+            totalBounced += 1;
+            addLog(`⤴ Bounced/invalid → ${email} (${result.error})`, 'warn');
+          } else {
+            totalFailed += 1;
+            addLog(`✗ Failed → ${email} (${result.error})`, 'err');
+          }
+        });
+
+        // Commit batch results to contact state.
+        setContacts((prev) =>
+          prev.map((contact) => {
+            const result = results.find((r: any) => r.id === contact.id);
+            if (!result) return contact;
+            if (result.success) return { ...contact, status: 'sent' as const };
+            if (result.skipped) return contact.status === 'sending' ? { ...contact, status: 'sent' as const } : contact;
+            if (result.bounced) return { ...contact, status: 'bounced' as const };
+            return { ...contact, status: 'failed' as const };
+          })
         );
       }
 
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.selected && c.status === 'pending' && contactIds.includes(c.id || '')
-            ? { ...c, status: 'sending' as const }
-            : c
-        )
-      );
-
-      const publicFlyerUrl =
-        process.env.NEXT_PUBLIC_FLYER_IMAGE_URL ||
-        (process.env.NEXT_PUBLIC_SUPABASE_URL &&
-        process.env.NEXT_PUBLIC_SUPABASE_BUCKET &&
-        process.env.NEXT_PUBLIC_SUPABASE_FLYER_FILE
-          ? `${process.env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/${process.env.NEXT_PUBLIC_SUPABASE_BUCKET}/${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_FLYER_FILE)}`
-          : '');
-      const resolvedFlyerImageUrl = publicFlyerUrl || `${window.location.origin}/api/flyer`;
-
-      const response = await fetch('/api/send-emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contactIds,
-          templateName: 'praise-party',
-          contactData: pending
-            .filter((c) => c.id)
-            .map((c) => ({ id: c.id as string, name: c.name, email: c.email })),
-          fromEmail: smtp.fromEmail,
-          fromName: smtp.fromName,
-          flyerImageUrl: resolvedFlyerImageUrl,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        addLog(`Error: ${data.error}`, 'err');
-        setRunning(false);
-        return;
+      if (!stopRef.current) {
+        addLog(
+          `Send complete: ${totalSent} sent, ${totalBounced} bounced, ${totalFailed} failed.`,
+          'info'
+        );
       }
-
-      // Update contacts based on results
-      data.results.forEach((result: any) => {
-        const contact = pending.find((c) => c.id === result.id);
-        const email = contact?.email || result.email || result.id;
-        const name = contact?.name || 'Unknown';
-
-        if (result.success) {
-          addLog(`✓ Sent → ${name} <${email}>`, 'ok');
-          return;
-        }
-
-        if (result.error?.includes('Already sent previously')) {
-          addLog(`• Skipped already sent → ${name} <${email}>`, 'warn');
-          return;
-        }
-
-        addLog(`✗ Failed → ${email} (${result.error})`, 'err');
-      });
-
-      // Update contacts state based on API results
-      setContacts((prev) =>
-        prev.map((contact) => {
-          const result = data.results.find((r: any) => r.id === contact.id);
-          if (result) {
-            if (result.skipped) {
-              return { ...contact, status: 'sent' };
-            }
-            return {
-              ...contact,
-              status: result.success ? 'sent' : 'failed',
-            };
-          }
-          return contact;
-        })
-      );
-
-      addLog(`Send complete: ${data.sentCount} sent, ${data.failedCount} failed`, 'info');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       setSendError(message);
@@ -177,6 +221,7 @@ export default function SendTab({
       <div className="stats-grid">
         <StatCard label="Selected" value={total} />
         <StatCard label="Sent" value={sent} accent="#10b981" />
+        <StatCard label="Bounced" value={bounced} accent="#c2410c" />
         <StatCard label="Failed" value={failed} accent="#ef4444" />
         <StatCard label="Remaining" value={pending.length} accent="#6366f1" />
       </div>

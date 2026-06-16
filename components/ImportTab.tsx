@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { Contact } from '@/lib/firebase';
-import { EMAIL_REGEX, parseName } from '@/lib/utils';
 import StatCard from './StatCard';
 
 interface ImportResult {

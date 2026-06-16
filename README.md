@@ -27,10 +27,26 @@ Bulk Email Campaign Manager simplifies the process of sending personalized email
 ### Email Delivery
 
 * Powered by Resend for reliable email delivery
-* Bulk email sending with intelligent rate limiting
-* Real-time delivery tracking
-* Detailed send logs and activity monitoring
+* **Resumable batch sending** — contacts are sent in small batches that survive
+  serverless time limits, so large lists send to completion. Stop and resume at
+  any time; already-sent contacts are never re-sent.
+* **Rate-limit aware** — paces sends under Resend's limits (configurable via
+  `RESEND_SEND_DELAY_MS`) and automatically retries transient/rate-limit errors
+  with backoff.
+* **Bounce skipping** — addresses that hard-bounce or are invalid are marked
+  `bounced` and skipped on every future run. A Resend webhook
+  (`/api/webhooks/resend`) keeps the bounce list up to date asynchronously.
+* Real-time delivery tracking with detailed send logs
 * Failed delivery management and retry support
+
+### Robust Spreadsheet Import
+
+* Detects the email column by header **or** by scanning cell contents
+* Finds names across `Title` / `First` / `Middle` / `Last` / `Surname` /
+  `Other Names` / full-name columns, and falls back to the most name-like column
+* Handles header rows that aren't the first row, messy email cells
+  (`mailto:`, surrounding text, multiple addresses), and ALL-CAPS names
+* De-duplicates against existing contacts and within the file
 
 ### Analytics & Status Tracking
 
@@ -94,6 +110,19 @@ Use these build settings:
 * Node version: `18`
 
 Before deploying, add the variables from `.env.example` to the Netlify site's environment variables. Keep server-side secrets such as `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` out of public client variables.
+
+### Bounce webhook (optional but recommended)
+
+In the Resend dashboard, add a webhook pointing at
+`https://<your-domain>/api/webhooks/resend` and subscribe to the
+`email.bounced` and `email.complained` events. To protect the endpoint, set
+`RESEND_WEBHOOK_TOKEN` and append `?token=<value>` to the webhook URL.
+
+### Database
+
+Run `supabase/default.sql` in the Supabase SQL editor. The `status` column is
+free-form text and supports `pending`, `sending`, `sent`, `failed`, and
+`bounced` — no migration is needed for the bounce status.
 
 ## License
 

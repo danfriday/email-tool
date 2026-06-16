@@ -9,10 +9,15 @@ export const generateId = () => Math.random().toString(36).slice(2, 9);
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function parseName(raw: string = ''): string {
-  return raw
-    .trim()
-    .replace(/[._]/g, ' ')
-    .replace(/\b\w/g, (l) => l.toUpperCase());
+  const s = String(raw)
+    .split('+')[0] // drop plus-addressing (john+church -> john)
+    .replace(/[._\-]+/g, ' ')
+    .replace(/\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!s) return '';
+  return s.replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 export function generateAvatarInitials(name: string): string {

@@ -12,7 +12,7 @@ interface ContactsTabProps {
 
 export default function ContactsTab({ contacts, setContacts }: ContactsTabProps) {
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'sent' | 'failed'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'sent' | 'failed' | 'bounced'>('all');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
@@ -65,6 +65,7 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
     pending: contacts.filter((c) => c.status === 'pending').length,
     sent: contacts.filter((c) => c.status === 'sent').length,
     failed: contacts.filter((c) => c.status === 'failed').length,
+    bounced: contacts.filter((c) => c.status === 'bounced').length,
   };
 
   if (contacts.length === 0) {
@@ -162,7 +163,7 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
             outline: 'none',
           }}
         />
-        {(['all', 'pending', 'sent', 'failed'] as const).map((s) => (
+        {(['all', 'pending', 'sent', 'failed', 'bounced'] as const).map((s) => (
           <button
             key={s}
             onClick={() => setFilterStatus(s)}
@@ -383,7 +384,7 @@ export default function ContactsTab({ contacts, setContacts }: ContactsTabProps)
                 </td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    {(c.status === 'sent' || c.status === 'failed') && (
+                    {(c.status === 'sent' || c.status === 'failed' || c.status === 'bounced') && (
                       <button
                         onClick={() => resetStatus(c.id)}
                         title="Reset to pending"

@@ -1,90 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { addContacts, getContactsByEmails } from '@/lib/supabase';
-import { EMAIL_REGEX, normalizeEmail, parseName } from '@/lib/utils';
+import { extractContactsFromWorkbook } from '@/lib/sheetParser';
 
-interface ImportResult {
-  file: string;
-  totalRows: number;
-  found: number;
-  added: number;
-  duplicates: number;
-  errors: number;
-  contacts: Array<{
-    id: string;
-    name: string;
-    email: string;
-  }>;
-}
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const file = formData.get('file') as File | null;
 
     if (!file) {
+      return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { success: false, error: 'No file provided' },
-        { status: 400 }
+        { success: false, error: 'File is too large (max 10 MB)' },
+        { status: 413 }
       );
     }
 
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
 
-    const rowCandidates: Array<{ name: string; email: string }> = [];
-    const totalRowsCounter = { totalRows: 0 };
+    let workbook: XLSX.WorkBook;
+    try {
+      workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Could not read file. Please upload a valid .xlsx, .xls or .csv.' },
+        { status: 400 }
+      );
+    }
 
-    for (const sheetName of workbook.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-        defval: '',
-      }) as Array<Record<string, unknown>>;
+    const { contacts: rowCandidates, totalRows } = extractContactsFromWorkbook(workbook);
 
-      if (!rows.length) continue;
-      totalRowsCounter.totalRows += rows.length;
-      const cols = Object.keys(rows[0]);
-
-      const emailCol =
-        cols.find((c) => /^e?mail$/i.test(c)) ||
-        cols.find((c) => /email|e-mail/i.test(c)) ||
-        cols.find((c) =>
-          rows.slice(0, 20).some((r) => EMAIL_REGEX.test(String(r[c])))
-        );
-
-      if (!emailCol) continue;
-
-      const firstCol = cols.find((c) => /first.?name|firstname/i.test(c));
-      const lastCol = cols.find((c) => /last.?name|lastname/i.test(c));
-      const nameCol =
-        cols.find((c) => /^(full.?name|name|contact.?name)$/i.test(c)) ||
-        (!firstCol && !lastCol
-          ? cols.find(
-              (c) =>
-                !/email|mail|id|phone|tel/i.test(c) &&
-                typeof rows[0][c] === 'string' &&
-                rows[0][c].length > 1 &&
-                rows[0][c].length < 80
-            )
-          : null);
-
-      for (const row of rows) {
-        const emailValue = String(row[emailCol]).trim();
-        const email = normalizeEmail(emailValue);
-        if (!EMAIL_REGEX.test(email)) continue;
-
-        let name = '';
-        if (firstCol || lastCol) {
-          name = [firstCol ? row[firstCol] : '', lastCol ? row[lastCol] : '']
-            .join(' ')
-            .trim();
-        } else if (nameCol) {
-          name = String(row[nameCol]).trim();
-        }
-
-        if (!name) name = parseName(email.split('@')[0]);
-
-        rowCandidates.push({ name, email });
-      }
+    if (!rowCandidates.length) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          file: file.name,
+          totalRows,
+          found: 0,
+          added: 0,
+          duplicates: 0,
+          existingDuplicates: 0,
+          inlineDuplicates: 0,
+          errors: 0,
+          contacts: [],
+        },
+      });
     }
 
     const allEmails = Array.from(new Set(rowCandidates.map((r) => r.email)));
@@ -100,12 +69,10 @@ export async function POST(request: NextRequest) {
         existingDuplicates += 1;
         continue;
       }
-
       if (newContactsMap.has(candidate.email)) {
         inlineDuplicates += 1;
         continue;
       }
-
       newContactsMap.set(candidate.email, candidate);
     }
 
@@ -116,16 +83,9 @@ export async function POST(request: NextRequest) {
     if (newContacts.length) {
       try {
         const addedIds = await addContacts(
-          newContacts.map((contact) => ({
-            ...contact,
-            status: 'pending',
-          }))
+          newContacts.map((contact) => ({ ...contact, status: 'pending' as const }))
         );
-
-        added = newContacts.map((contact, index) => ({
-          id: addedIds[index],
-          ...contact,
-        }));
+        added = newContacts.map((contact, index) => ({ id: addedIds[index], ...contact }));
       } catch (err) {
         console.error('Failed to insert contacts in bulk:', err);
         errors = newContacts.length;
@@ -138,7 +98,7 @@ export async function POST(request: NextRequest) {
       success: true,
       result: {
         file: file.name,
-        totalRows: totalRowsCounter.totalRows,
+        totalRows,
         found: added.length + duplicateEmails,
         added: added.length,
         duplicates: duplicateEmails,
@@ -150,10 +110,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
