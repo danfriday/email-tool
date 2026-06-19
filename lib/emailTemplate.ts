@@ -88,8 +88,85 @@ Praise Party 3.0
 Register here: https://rccglp20youths.com/register.php`,
 };
 
+// Reminder for people who have ALREADY registered. Same flyer + event details,
+// but the copy confirms their spot instead of inviting them to register.
+const PRAISE_PARTY_REMINDER_TEMPLATE: EmailTemplate = {
+  subject: "Reminder: Praise Party 3.0 is this Friday 🎉",
+  html: `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Praise Party 3.0 Reminder</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f7f7;font-family:Arial,Helvetica,sans-serif;color:#333333;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0;padding:0;background:#f7f7f7;">
+<tr><td align="center" style="padding:0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;">
+    <tr><td>
+        <img src="{{FLYER_IMAGE_URL}}" alt="Praise Party 3.0 - Victory" width="100%"
+             style="display:block;width:100%;max-width:600px;height:auto;border:0;text-decoration:none;-ms-interpolation-mode:bicubic;">
+    </td></tr>
+    <tr><td style="padding:24px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:0 auto 20px;width:auto;">
+            <tr><td align="center" bgcolor="#e9fdf0" style="border-radius:999px;border:1px solid #b7f0cd;">
+                <span style="display:inline-block;padding:7px 16px;color:#15803d;font-weight:bold;font-size:13px;">✅ You're registered. See you there!</span>
+            </td></tr>
+        </table>
+        <p style="margin:0 0 20px;font-size:18px;">Dear <strong>{{NAME}}</strong>,</p>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">Quick reminder that <strong>Praise Party 3.0</strong> is this Friday. This year's theme is <strong>VICTORY</strong>. Thanks for registering. Your spot is confirmed.</p>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">Here are the details one more time:</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:25px 0;">
+            <tr><td style="padding:15px;background:#fafafa;border-left:4px solid #6a35ff;">
+                <p style="margin:0 0 10px;"><strong>📅 Date:</strong> Friday, 26th June 2026</p>
+                <p style="margin:0 0 10px;"><strong>🕖 Time:</strong> 7:00 PM (Red Carpet Begins)</p>
+                <p style="margin:0;"><strong>📍 Venue:</strong><br>
+                    RCCG Floodgates of Heaven Parish<br>
+                    Plot 9, The Rock Drive, off C&I Leasing Street,<br>
+                    off Bisola Durosinmi Etti Drive,<br>
+                    Lekki Phase 1, Lagos.
+                </p>
+            </td></tr>
+        </table>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">Come ready to praise, give thanks, worship, and dance the Victory Dance with us. Bring your family and friends along.</p>
+        <p style="margin:0 0 25px;line-height:1.7;font-size:16px;">We can't wait to celebrate with you.</p>
+        <p style="margin:0;font-size:16px;">Blessings,<br><br><strong>Bukola Onaolapo</strong><br>Program Director<br>Praise Party 3.0</p>
+    </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+  text: `Dear {{NAME}},
+
+✅ You're registered. See you there!
+
+Quick reminder that Praise Party 3.0 is this Friday. This year's theme is VICTORY. Thanks for registering. Your spot is confirmed.
+
+Here are the details one more time:
+
+📅 Date: Friday, 26th June 2026
+🕖 Time: 7:00 PM (Red Carpet Begins)
+📍 Venue:
+RCCG Floodgates of Heaven Parish
+Plot 9, The Rock Drive, off C&I Leasing Street,
+off Bisola Durosinmi Etti Drive,
+Lekki Phase 1, Lagos.
+
+Come ready to praise, give thanks, worship, and dance the Victory Dance with us. Bring your family and friends along.
+
+We can't wait to celebrate with you.
+
+Blessings,
+
+Bukola Onaolapo
+Program Director
+Praise Party 3.0`,
+};
+
 const TEMPLATES: Record<string, EmailTemplate> = {
   'praise-party': PRAISE_PARTY_TEMPLATE,
+  'reminder': PRAISE_PARTY_REMINDER_TEMPLATE,
 };
 
 export function getEmailTemplate(name = 'praise-party'): EmailTemplate {

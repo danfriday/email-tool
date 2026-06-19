@@ -57,6 +57,36 @@ export async function createList(name: string, description?: string): Promise<Co
   return mapList(data, 0);
 }
 
+/**
+ * Find a list by its exact name, creating it if it doesn't exist yet. Used for
+ * stable, app-managed lists (e.g. the reminder audience) that have no UI to be
+ * created by hand. Tolerates the unique-name race by re-reading on conflict.
+ */
+export async function getOrCreateListByName(name: string, description?: string): Promise<ContactList> {
+  const db = getAdminClient();
+  const { data: existing, error } = await db
+    .from('contact_lists').select('*').eq('name', name).maybeSingle();
+  if (error) throw error;
+  if (existing) return mapList(existing);
+
+  const { data, error: insErr } = await db
+    .from('contact_lists')
+    .insert({ name, description: description ?? null })
+    .select('*')
+    .single();
+  if (insErr) {
+    if ((insErr as any).code === '23505') {
+      // Lost the race — another request created it. Read it back.
+      const { data: row, error: reErr } = await db
+        .from('contact_lists').select('*').eq('name', name).single();
+      if (reErr) throw reErr;
+      return mapList(row);
+    }
+    throw insErr;
+  }
+  return mapList(data, 0);
+}
+
 export async function renameList(id: string, name: string, description?: string): Promise<void> {
   const payload: Record<string, unknown> = { name };
   if (description !== undefined) payload.description = description;
@@ -101,6 +131,18 @@ export async function removeContactsFromList(listId: string, contactIds: string[
     removed += (data ?? []).length;
   }
   return removed;
+}
+
+/** Count of non-suppressed contacts on a list — i.e. how many will actually be emailed. */
+export async function countActiveContactsInList(listId: string): Promise<number> {
+  const db = getAdminClient();
+  const { count, error } = await db
+    .from('contact_list_members')
+    .select('contacts!inner(suppressed)', { count: 'exact', head: true })
+    .eq('list_id', listId)
+    .eq('contacts.suppressed', false);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /** Distinct contact ids that belong to ANY of the given lists. */

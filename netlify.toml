@@ -1,6 +1,11 @@
 [build]
   command = "npm run build"
-  publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
+
+# Next.js runtime: handles SSR, the App Router, and every /api route.
+# Required for this app to work on Netlify. The plugin manages the
+# publish directory, so do not set `publish` by hand.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

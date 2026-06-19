@@ -7,14 +7,16 @@ import DashboardTab from '@/components/DashboardTab';
 import ImportTab from '@/components/ImportTab';
 import ContactsTab from '@/components/ContactsTab';
 import SendTab from '@/components/SendTab';
+import ReminderTab from '@/components/ReminderTab';
 import LogsTab from '@/components/LogsTab';
 
-const TABS = ['dashboard', 'import', 'contacts', 'send', 'logs'] as const;
+const TABS = ['dashboard', 'import', 'contacts', 'send', 'reminder', 'logs'] as const;
 const LABELS: Record<(typeof TABS)[number], string> = {
   dashboard: '📊 Dashboard',
   import: '📥 Import',
   contacts: '👥 Contacts',
   send: '✉️ Send',
+  reminder: '⏰ Reminder',
   logs: '📜 Logs',
 };
 
@@ -63,6 +65,7 @@ export default function Home() {
           {tab === 'import' && <ImportTab />}
           {tab === 'contacts' && <ContactsTab />}
           {tab === 'send' && <SendTab />}
+          {tab === 'reminder' && <ReminderTab />}
           {tab === 'logs' && <LogsTab />}
         </div>
       </div>
