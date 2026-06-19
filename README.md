@@ -1,129 +1,111 @@
-# Bulk Email Campaign Manager
+# Bulk Email Platform
 
-A modern email campaign platform built with Next.js, Supabase, and Resend that enables organizations to import contacts, create personalized email campaigns, and track delivery status in real time.
+A production-oriented bulk email manager: import contacts at scale, segment
+them into lists, and send template-based campaigns through a **durable,
+server-side queue** that keeps sending even after the admin closes the browser.
 
-## Overview
+Built with **Next.js 14** (Netlify) + **Supabase** (Postgres, Auth, Edge
+Functions, pg_cron) + **Resend**.
 
-Bulk Email Campaign Manager simplifies the process of sending personalized emails at scale. Whether you're managing event invitations, church programs, marketing campaigns, community outreach, or organizational announcements, the platform provides an intuitive workflow from contact import to email delivery.
+## Architecture
 
-## Key Features
+```
+ Browser (admin UI)                Netlify (Next.js)                 Supabase
+ ─────────────────                 ─────────────────                 ────────
+  Dashboard / Contacts   ── API ──►  Route handlers      ── SQL ──►  Postgres
+  Lists / Campaigns / Logs           (auth + validation)             ├─ contacts / lists
+        ▲                                                            ├─ campaigns
+        │ live polling                                               ├─ email_jobs (queue)
+        └──────────────────────────────────────────────┐           └─ activity_logs
+                                                         │
+                            pg_cron (every minute) ──────┴──► Edge Function `process-queue`
+                                                                   claims jobs (SKIP LOCKED)
+                                                                   → Resend (retry/backoff)
+                                                                   → updates statuses + logs
+```
 
-### Contact Management
+The browser **never sends email**. It only enqueues a campaign; the Supabase
+Edge Function — woken by pg_cron — drains the `email_jobs` queue. Closing the
+tab, refreshing, or losing connectivity has no effect on delivery.
 
-* Import contacts from Excel (.xlsx, .xls) and CSV files
-* Automatic column detection for names and email addresses
-* Search, filter, and manage contacts
-* Bulk contact operations
-* Cloud-backed contact storage
+### Key properties
+- **Scalable contacts** — server-side pagination, trigram-indexed search,
+  set-based bulk import that dedupes on a unique index. Handles 100k+ rows.
+- **Segments** — many-to-many lists; a contact can belong to many lists.
+- **Campaigns** — draft / schedule / queue / pause / resume / cancel /
+  duplicate, with live progress (sent / pending / failed / skipped / %).
+- **Durable queue** — `FOR UPDATE SKIP LOCKED` claiming, exponential backoff,
+  stuck-job recovery, global suppression of hard bounces/complaints.
+- **Security** — Supabase Auth on every route, locked-down RLS, input
+  sanitization, rate limiting, signed Resend webhook.
 
-### Personalized Email Campaigns
+## Setup
 
-* Dynamic personalization using merge tags
-* Rich HTML email support
-* Reusable email templates
-* Live email preview before sending
-* Custom sender name and email configuration
+### 1. Database
+Run the migrations in order in the Supabase SQL editor (or `supabase db push`):
+```
+supabase/migrations/0001_init.sql      -- tables, indexes, RLS, worker RPCs
+supabase/migrations/0002_enqueue.sql   -- recipient enqueue RPCs
+supabase/migrations/0009_schedule.sql  -- pg_cron schedule (edit placeholders!)
+```
+In `0009_schedule.sql` replace `<PROJECT_REF>` and `<WORKER_SECRET>` first
+(run it after deploying the Edge Function in step 2).
 
-### Email Delivery
+### 2. The worker
 
-* Powered by Resend for reliable email delivery
-* **Resumable batch sending** — contacts are sent in small batches that survive
-  serverless time limits, so large lists send to completion. Stop and resume at
-  any time; already-sent contacts are never re-sent.
-* **Rate-limit aware** — paces sends under Resend's limits (configurable via
-  `RESEND_SEND_DELAY_MS`) and automatically retries transient/rate-limit errors
-  with backoff.
-* **Bounce skipping** — addresses that hard-bounce or are invalid are marked
-  `bounced` and skipped on every future run. A Resend webhook
-  (`/api/webhooks/resend`) keeps the bounce list up to date asynchronously.
-* Real-time delivery tracking with detailed send logs
-* Failed delivery management and retry support
+Default (no deploy, reuses your existing app env): the worker runs as the
+Next.js route `app/api/cron/process-queue`. After a campaign is enqueued the
+app pings it and it **self-chains** until the queue drains, so sending
+continues server-side even if the browser closes. It authenticates with
+`x-cron-secret` = your `SUPABASE_SERVICE_ROLE_KEY`. Nothing extra to configure.
 
-### Robust Spreadsheet Import
+Then add the pg_cron backstop in `0009_schedule.sql` (starts scheduled
+campaigns, retries, and recovers stuck jobs when no admin is online) — replace
+`<YOUR_SITE_URL>` and `<SERVICE_ROLE_KEY>` and run it.
 
-* Detects the email column by header **or** by scanning cell contents
-* Finds names across `Title` / `First` / `Middle` / `Last` / `Surname` /
-  `Other Names` / full-name columns, and falls back to the most name-like column
-* Handles header rows that aren't the first row, messy email cells
-  (`mailto:`, surrounding text, multiple addresses), and ALL-CAPS names
-* De-duplicates against existing contacts and within the file
+Alternative: the Supabase Edge Function in `supabase/functions/process-queue`
+does the same job inside Supabase. It requires the CLI + its own secrets
+(`supabase functions deploy process-queue --no-verify-jwt`,
+`supabase secrets set RESEND_API_KEY=... FROM_EMAIL=... FROM_NAME=... FLYER_IMAGE_URL=... WORKER_SECRET=...`).
+Use it only if you prefer the worker to live in Supabase rather than Netlify.
 
-### Analytics & Status Tracking
+### 3. Admin user
+Create one in the Supabase dashboard (Authentication → Users → Add user), or
+enable email sign-in. The app has no public sign-up — admins are provisioned
+in Supabase.
 
-* Monitor campaign progress in real time
-* Track sent, pending, and failed emails
-* Delivery statistics dashboard
-* Campaign performance visibility
+### 4. App env
+Copy `.env.example` → `.env.local` (and into Netlify env vars). Keep
+`SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` server-side only.
 
-### Modern User Experience
+### 5. Run / deploy
+```
+npm install
+npm run dev          # local
+npm run build        # Netlify build command, publish dir: .next
+```
 
-* Clean and responsive interface
-* Fast contact search and filtering
-* Streamlined campaign workflow
-* Mobile-friendly design
-* Built with Next.js and TypeScript
+### Resend webhook (recommended)
+Point a Resend webhook at `https://<domain>/api/webhooks/resend`, subscribe to
+`email.bounced` and `email.complained`, and set
+`RESEND_WEBHOOK_SIGNING_SECRET` (preferred) or `RESEND_WEBHOOK_TOKEN`.
+Suppressed addresses are skipped on every future send.
 
-## Technology Stack
-
-* **Frontend:** Next.js, React, TypeScript
-* **Database:** Supabase
-* **Email Service:** Resend
-* **Styling:** Modern responsive UI
-* **Deployment:** Netlify-ready
-
-## Use Cases
-
-* Event invitations
-* Church and ministry communications
-* Conference registrations
-* Community outreach campaigns
-* Newsletter distribution
-* Customer announcements
-* Nonprofit engagement campaigns
-
-## Core Workflow
-
-1. Import contacts from Excel or CSV files
-2. Organize and manage recipients
-3. Create personalized email content
-4. Preview campaigns before sending
-5. Launch email campaigns
-6. Monitor delivery status in real time
-7. Review campaign results and analytics
-
-## Security & Reliability
-
-* Secure cloud-based contact storage
-* Environment-based credential management
-* Reliable transactional email infrastructure
-* Error handling and delivery monitoring
-* Scalable architecture for growing contact lists
-
-## Netlify Deployment
-
-The application is configured for Netlify with `netlify.toml`.
-
-Use these build settings:
-
-* Build command: `npm run build`
-* Publish directory: `.next`
-* Node version: `18`
-
-Before deploying, add the variables from `.env.example` to the Netlify site's environment variables. Keep server-side secrets such as `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` out of public client variables.
-
-### Bounce webhook (optional but recommended)
-
-In the Resend dashboard, add a webhook pointing at
-`https://<your-domain>/api/webhooks/resend` and subscribe to the
-`email.bounced` and `email.complained` events. To protect the endpoint, set
-`RESEND_WEBHOOK_TOKEN` and append `?token=<value>` to the webhook URL.
-
-### Database
-
-Run `supabase/default.sql` in the Supabase SQL editor. The `status` column is
-free-form text and supports `pending`, `sending`, `sent`, `failed`, and
-`bounced` — no migration is needed for the bounce status.
+## Project layout
+```
+app/                      Next.js app router (UI + API routes)
+  api/contacts|lists|campaigns|logs|dashboard|import|webhooks|flyer
+components/                UI tabs (Dashboard, Contacts, Lists, Campaigns, Logs)
+lib/
+  services/                DB access (contacts, lists, campaigns, logs)
+  supabaseAdmin.ts         service-role client (server only)
+  supabaseServer/Browser   auth-aware clients
+  auth.ts / validation.ts / logger.ts / rateLimit.ts
+middleware.ts              auth gate + rate limiting
+supabase/
+  migrations/              SQL schema, RPCs, pg_cron schedule
+  functions/process-queue  Deno Edge Function worker
+```
 
 ## License
-
-MIT License
+MIT

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { getPublicFileUrl } from '@/lib/supabase';
+import { getPublicFileUrl } from '@/lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 

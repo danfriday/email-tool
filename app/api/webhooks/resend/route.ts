@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { markContactsBouncedByEmail } from '@/lib/supabase';
+import { suppressByEmail } from '@/lib/services/contacts';
+import { logActivity } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -98,7 +99,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, marked: 0 });
     }
 
-    const marked = await markContactsBouncedByEmail(recipients);
+    const marked = await suppressByEmail(recipients, `resend webhook: ${type}`);
+    await logActivity('email', 'warn', `Suppressed ${marked} address(es) via ${type}`, {
+      actor: 'resend-webhook', metadata: { recipients },
+    });
     return NextResponse.json({ success: true, marked });
   } catch (error) {
     return NextResponse.json(

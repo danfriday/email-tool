@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { uploadFileToBucket, getPublicFileUrl } from '@/lib/supabase';
+import { uploadFileToBucket, getPublicFileUrl } from '@/lib/supabaseAdmin';
+import { requireUser, errorResponse } from '@/lib/auth';
 
 export async function POST() {
   try {
+    await requireUser();
     const fileName =
       process.env.SUPABASE_FLYER_FILE ||
       process.env.NEXT_PUBLIC_SUPABASE_FLYER_FILE ||
@@ -21,12 +23,6 @@ export async function POST() {
       message: 'Flyer uploaded to Supabase storage',
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
