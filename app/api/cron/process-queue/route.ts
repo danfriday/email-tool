@@ -116,7 +116,12 @@ async function drain(workerId: string): Promise<{ processed: number; drained: bo
   const campaignCache = new Map<string, Campaign>();
 
   while (Date.now() - start < MAX_RUNTIME_MS) {
-    const { data: jobs, error } = await db.rpc('claim_email_jobs', { p_batch_size: BATCH_SIZE, p_worker_id: workerId });
+    // Claim only as many jobs as we can actually send before the time budget
+    // runs out (each send costs ~SEND_DELAY_MS). Over-claiming is what strands
+    // jobs in `processing`; right-sizing the batch prevents that at the source.
+    const remaining = MAX_RUNTIME_MS - (Date.now() - start);
+    const batch = Math.max(1, Math.min(BATCH_SIZE, Math.floor(remaining / SEND_DELAY_MS)));
+    const { data: jobs, error } = await db.rpc('claim_email_jobs', { p_batch_size: batch, p_worker_id: workerId });
     if (error) { await logActivity('job', 'error', `claim_email_jobs failed: ${error.message}`); break; }
     if (!jobs || jobs.length === 0) { drained = true; break; }
 
@@ -140,6 +145,16 @@ async function drain(workerId: string): Promise<{ processed: number; drained: bo
     }
   }
 
+  // Safety net: never leave jobs this worker claimed stranded in `processing`.
+  // If the time budget cut us off mid-batch, release the unsent remainder back
+  // to the queue immediately so the next tick picks them up — instead of them
+  // waiting ~10 min for the stuck-job sweep. These were claimed-but-never-sent,
+  // so re-queueing is correct and cannot cause a duplicate send.
+  await db.from('email_jobs')
+    .update({ status: 'queued', locked_at: null, locked_by: null, next_attempt_at: new Date().toISOString() })
+    .eq('locked_by', workerId)
+    .eq('status', 'processing');
+
   await db.rpc('reconcile_campaigns');
   if (processed > 0) await logActivity('job', 'info', `Worker processed ${processed} job(s)`, { metadata: { processed, drained } });
   return { processed, drained };
@@ -148,7 +163,9 @@ async function drain(workerId: string): Promise<{ processed: number; drained: bo
 function authorized(req: NextRequest): boolean {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!secret) return false;
-  const provided = req.headers.get('x-cron-secret') || req.nextUrl.searchParams.get('secret');
+  // Header only — never accept the secret via query string, which would leak
+  // the service-role key into Netlify/proxy access logs.
+  const provided = req.headers.get('x-cron-secret');
   return provided === secret;
 }
 
@@ -163,16 +180,12 @@ async function handle(req: NextRequest) {
   const workerId = randomUUID();
   const { processed, drained } = await drain(workerId);
 
-  // If the queue still has work, re-trigger ourselves (same origin, no env
-  // needed) so sending keeps going server-side without waiting for cron.
-  if (!drained) {
-    const selfUrl = new URL(req.nextUrl.pathname, req.nextUrl.origin);
-    fetch(selfUrl, {
-      method: 'POST',
-      headers: { 'x-cron-secret': process.env.SUPABASE_SERVICE_ROLE_KEY ?? '' },
-    }).catch(() => { /* cron will pick it up regardless */ });
-  }
-
+  // NOTE: no self-chaining. The previous self-re-trigger spawned many
+  // overlapping invocations that collectively blew past Resend's 5 req/s
+  // rate limit (causing mass "Too many requests" failures). Sending is now
+  // driven solely by the once-a-minute pg_cron tick, so exactly one worker
+  // runs at a time and stays well under the rate limit. Throughput is paced
+  // by SEND_DELAY_MS; the queue drains over successive ticks.
   return NextResponse.json({ success: true, processed, drained });
 }
 
