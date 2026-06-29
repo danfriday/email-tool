@@ -67,14 +67,18 @@ export default function ReminderTab() {
     }
   }, [toast, load]);
 
-  const send = async () => {
+  const send = async (templateName: 'reminder' | 'thank-you') => {
     if (!count) return;
-    if (!confirm(`Send the Praise Party 3.0 reminder to all ${count} registrant(s) on the reminder list?`)) return;
+    const what = templateName === 'thank-you'
+      ? `Send the Praise Party 3.0 "thank you for coming" email to all ${count} registrant(s) on the list?`
+      : `Send the Praise Party 3.0 reminder to all ${count} registrant(s) on the reminder list?`;
+    if (!confirm(what)) return;
     setBusy(true);
     try {
-      const d = await api.post('/api/reminder');
+      const d = await api.post('/api/reminder', { templateName });
       setCurrent(d.current ?? null);
-      toast.success(`Sending the reminder to ${d.enqueued} registrant${d.enqueued === 1 ? '' : 's'} — it runs in the background.`);
+      const noun = templateName === 'thank-you' ? 'thank-you' : 'reminder';
+      toast.success(`Sending the ${noun} to ${d.enqueued} registrant${d.enqueued === 1 ? '' : 's'} — it runs in the background.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send');
     } finally {
@@ -126,38 +130,68 @@ export default function ReminderTab() {
         )}
       </div>
 
-      {/* Step 2 — send the reminder */}
+      {/* Step 2 — send to the registrants list (reminder before, thank-you after) */}
       <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-          Step 2 — Send reminder
-        </div>
-        <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginTop: 4 }}>
-          Reminder: Praise Party 3.0 is this Friday
+          Step 2 — Send to registrants
         </div>
         <div style={{ fontSize: 13, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
-          The reminder email (same flyer, confirming their spot) goes only to the{' '}
+          These emails (same flyer and branding) go only to the{' '}
           <strong>{count}</strong> registrant{count === 1 ? '' : 's'} on the reminder list.
           Suppressed and unsubscribed contacts are skipped automatically.
         </div>
 
-        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <button
-            onClick={send}
-            disabled={busy || sending || count === 0}
-            style={{
-              padding: '12px 24px', borderRadius: 10, border: 'none', fontWeight: 700, fontSize: 15,
-              color: '#fff', cursor: busy || sending || count === 0 ? 'not-allowed' : 'pointer',
-              background: busy || sending || count === 0 ? '#a5b4fc' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-            }}
-          >
-            {sending ? 'Sending…' : busy ? 'Starting…' : `⏰  Send reminder to ${count} registrant${count === 1 ? '' : 's'}`}
-          </button>
-          {count === 0 && (
-            <span style={{ fontSize: 13, color: '#94a3b8' }}>
-              Upload the registered list above first.
-            </span>
-          )}
+        {/* Before the event — reminder */}
+        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+            Reminder: Praise Party 3.0 is this Friday
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+            Pre-event nudge confirming their spot.
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={() => send('reminder')}
+              disabled={busy || sending || count === 0}
+              style={{
+                padding: '12px 24px', borderRadius: 10, border: 'none', fontWeight: 700, fontSize: 15,
+                color: '#fff', cursor: busy || sending || count === 0 ? 'not-allowed' : 'pointer',
+                background: busy || sending || count === 0 ? '#a5b4fc' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              }}
+            >
+              {busy || sending ? 'Working…' : `⏰  Send reminder to ${count} registrant${count === 1 ? '' : 's'}`}
+            </button>
+          </div>
         </div>
+
+        {/* After the event — thank you for coming */}
+        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+            Thank you for coming to Praise Party 3.0! 🎉
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+            Post-event gratitude note for everyone who attended.
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={() => send('thank-you')}
+              disabled={busy || sending || count === 0}
+              style={{
+                padding: '12px 24px', borderRadius: 10, border: 'none', fontWeight: 700, fontSize: 15,
+                color: '#fff', cursor: busy || sending || count === 0 ? 'not-allowed' : 'pointer',
+                background: busy || sending || count === 0 ? '#c4b5fd' : 'linear-gradient(135deg, #8b5cf6, #6a35ff)',
+              }}
+            >
+              {busy || sending ? 'Working…' : `🎉  Send thank-you to ${count} registrant${count === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+
+        {count === 0 && (
+          <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 14 }}>
+            Upload the registered list above first.
+          </div>
+        )}
       </div>
 
       {/* Live progress of the most recent reminder send */}

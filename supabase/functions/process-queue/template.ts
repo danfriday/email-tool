@@ -163,9 +163,74 @@ Program Director
 Praise Party 3.0`,
 };
 
+// Post-event "thank you for coming" note for everyone who attended/registered.
+// Same flyer + branding as the invite and reminder, but the copy celebrates the
+// night that just happened instead of pointing forward to it.
+const PRAISE_PARTY_THANK_YOU_TEMPLATE: EmailTemplate = {
+  subject: "Thank you for coming to Praise Party 3.0! 🎉",
+  html: `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thank You — Praise Party 3.0</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f7f7;font-family:Arial,Helvetica,sans-serif;color:#333333;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0;padding:0;background:#f7f7f7;">
+<tr><td align="center" style="padding:0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;">
+    <tr><td>
+        <img src="{{FLYER_IMAGE_URL}}" alt="Praise Party 3.0 - Victory" width="100%"
+             style="display:block;width:100%;max-width:600px;height:auto;border:0;text-decoration:none;-ms-interpolation-mode:bicubic;">
+    </td></tr>
+    <tr><td style="padding:24px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:0 auto 20px;width:auto;">
+            <tr><td align="center" bgcolor="#f5f3ff" style="border-radius:999px;border:1px solid #ddd6fe;">
+                <span style="display:inline-block;padding:7px 16px;color:#6a35ff;font-weight:bold;font-size:13px;">🎉 Thank you for coming!</span>
+            </td></tr>
+        </table>
+        <p style="margin:0 0 20px;font-size:18px;">Dear <strong>{{NAME}}</strong>,</p>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">Thank you so much for coming to <strong>Praise Party 3.0</strong>. What a night it was! We praised, we worshipped, and we danced the Victory Dance together, and it was beautiful.</p>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">It honestly wouldn't have been the same without you. Thank you for showing up, for lifting your voice, and for giving God all the glory with us.</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:25px 0;">
+            <tr><td style="padding:18px;background:#fafafa;border-left:4px solid #6a35ff;">
+                <p style="margin:0;line-height:1.7;font-size:16px;font-style:italic;">"Thanks be to God, who gives us the victory through our Lord Jesus Christ." (1 Corinthians 15:57)</p>
+            </td></tr>
+        </table>
+        <p style="margin:0 0 20px;line-height:1.7;font-size:16px;">We're already looking forward to the next one. Stay close, keep the praise going, and bring a friend along when we do it again.</p>
+        <p style="margin:0 0 25px;line-height:1.7;font-size:16px;">Until then, stay blessed and keep dancing the Victory Dance. 🙌</p>
+        <p style="margin:0;font-size:16px;">With love and gratitude,<br><br><strong>Bukola Onaolapo</strong><br>Program Director<br>Praise Party 3.0</p>
+    </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`,
+  text: `Dear {{NAME}},
+
+🎉 Thank you for coming!
+
+Thank you so much for coming to Praise Party 3.0. What a night it was! We praised, we worshipped, and we danced the Victory Dance together, and it was beautiful.
+
+It honestly wouldn't have been the same without you. Thank you for showing up, for lifting your voice, and for giving God all the glory with us.
+
+"Thanks be to God, who gives us the victory through our Lord Jesus Christ." (1 Corinthians 15:57)
+
+We're already looking forward to the next one. Stay close, keep the praise going, and bring a friend along when we do it again.
+
+Until then, stay blessed and keep dancing the Victory Dance.
+
+With love and gratitude,
+
+Bukola Onaolapo
+Program Director
+Praise Party 3.0`,
+};
+
 const TEMPLATES: Record<string, EmailTemplate> = {
   "praise-party": PRAISE_PARTY_TEMPLATE,
   "reminder": PRAISE_PARTY_REMINDER_TEMPLATE,
+  "thank-you": PRAISE_PARTY_THANK_YOU_TEMPLATE,
 };
 
 export function getEmailTemplate(name = "praise-party"): EmailTemplate {

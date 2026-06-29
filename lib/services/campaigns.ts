@@ -85,6 +85,22 @@ export async function getLatestCampaignProgressByTemplate(
   return data ? mapProgress(data) : null;
 }
 
+/** The most recent campaign using any of the given templates, or null. */
+export async function getLatestCampaignProgressByTemplates(
+  templateNames: readonly string[]
+): Promise<CampaignProgress | null> {
+  if (templateNames.length === 0) return null;
+  const { data, error } = await getAdminClient()
+    .from('campaign_progress')
+    .select('*')
+    .in('template_name', templateNames as string[])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapProgress(data) : null;
+}
+
 export async function getCampaignProgress(id: string): Promise<CampaignProgress | null> {
   const { data, error } = await getAdminClient()
     .from('campaign_progress').select('*').eq('id', id).single();
